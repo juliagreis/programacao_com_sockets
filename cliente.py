@@ -81,6 +81,21 @@ def handle_peer(conn, addr):
     finally:
         conn.close()
 
+def LISTEN_SERVIDOR(sock):
+    while True:
+        try:
+            resposta = sock.recv(1024)
+
+            if not resposta:
+                print("Servidor desconectado.")
+                break
+
+            print("Servidor:", resposta.decode('utf-8'))
+
+        except Exception as e:
+            print("Erro ao receber do servidor:", e)
+            break
+
 def main():
 
     #-------- 1. INICIALIZAÇÃO DO CLIENTE---------
@@ -138,6 +153,16 @@ def main():
     thread_listen = threading.Thread(target=LISTEN, args=(p2p_socket,))
     thread_listen.daemon = True  # encerra junto com o programa
     thread_listen.start()
+
+    #3.3 Thread para escutar mensagens do servidor central
+    #Como o servidor pode enviar respostas a qualquer momento (ex: LIST, ADDR, etc.),
+    #é necessário manter o cliente constantemente ouvindo o socket conectado ao servidor.
+    #Para evitar bloquear a interação do usuário (menu),
+    #uma thread separada fica responsável por receber (recv) e exibir
+    #as mensagens enviadas pelo servidor central em tempo real.
+    thread_server = threading.Thread(target=LISTEN_SERVIDOR, args=(servidor_central_socket,))
+    thread_server.daemon = True
+    thread_server.start()
 
     menu(servidor_central_socket)
     return
