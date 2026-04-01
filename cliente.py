@@ -1,12 +1,24 @@
 import socket
+import time
+import threading
 
 HOSTP2P='0.0.0.0'
 HOST_SERVIDOR_CENTRAL='200.235.131.66'
-PORTA_SERVIDOR_CENTRAL='10000'
+PORTA_SERVIDOR_CENTRAL=10000
+
+def KEEP(servidor_central_socket):
+    "Função que envia 'KEEP' a cada 5 segundo para o servidor central em segundo plano"
+    while True:
+        try:
+            time.sleep(5) #em segundos
+            servidor_central_socket.send("KEEP\r\n",encode('utf-8'))
+        except Exception as e:
+            print("Erro de conexão: ", e)
+            return
 
 def main():
 
-    #--------INICIALIZAÇÃO DO CLIENTE---------
+    #-------- 1. INICIALIZAÇÃO DO CLIENTE---------
     print("Iniciando cliente...")
 
     #Criar socket TCP
@@ -19,9 +31,9 @@ def main():
     print(f"Cliente IP:{myIP} pronto para estabelecer conexões P2P na porta {myPORTA}.")
 
     #Pedir nome de usuário (não pode conter ':')
-    nomeUsuario=input ("Digite seu nome de usuário: ")
+    nomeUsuario=int(input ("Digite seu nome de usuário: "))
 
-    #---------Conectar no servidor central--------
+    #---------2. Conectar no servidor central--------
     #Cria um socket exclusivamente para falar com o servidor central
     servidor_central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -41,7 +53,14 @@ def main():
         print("Erro ao conectar ao servidor central: ",e)
         return
 
-    #--------Iniciar as Threads (para o KEEP, para escutar peers, etc.)--------
+    #-------- 3. Iniciar as Threads (para o KEEP, para escutar peers, etc.)--------
+
+    #3.1 Comando KEEP deve ser enviado a cada 5s para o servidor não apagar o registro
+    #Como esse envio deve acontecer de maneira constante e em segundo plano,
+    #permitindo que eu continue enviando mensagens, designo uma thread para a função, que contem
+    #um while true, mantendo a thread presa dentro da função
+    threadKEEP= threading.Thread(target=KEEP, args = (servidor_central_socket,)).start()
+    input("Cliente rodando! Pressione ENTER para sair do programa...\n") #só pra testar
 
 if __name__ == "__main__":
     main()
