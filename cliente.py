@@ -41,7 +41,6 @@ def main():
         print("Erro ao conectar ao servidor central: ",e)
         return
 
-    #--------Enviar o comando USER com a minha porta, registrando usuário como disponível----
     #--------Iniciar as Threads (para o KEEP, para escutar peers, etc.)--------
 
 if __name__ == "__main__":
