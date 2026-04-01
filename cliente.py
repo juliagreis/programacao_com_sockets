@@ -15,9 +15,38 @@ def KEEP(servidor_central_socket):
         except Exception as e:
             print("Erro de conexão: ", e)
             return
+            
+def menu(servidor_central_socket):
+    "Menu de interacao para digitiar os comandos list, chat e exit"
+    print("----------------CHAT P2P ----------------")
+    print("Comandos: /list, /chat <nome>, /exit")
+
+    while True:
+        cmd=input()
+
+        if cmd=="/list": #listar todos os usuarios
+            servidor_central_socket.send("LIST\r\n".encode('utf-8'))
+
+        elif cmd=="/exit":
+            print("Encerrando conexão do cliente")
+            servidor_central_socket.close()
+            break
+        elif cmd.startswith("/chat"): 
+            partes=cmd.split()
+            if len(partes)==2: 
+                nome_destino=partes[1]
+                comando_ADDR=f"ADDR {nome_destino}\r\n"
+                servidor_central_socket.send(comando_ADDR.encode('utf-8'))
+                print(f"Solicitando IP e Porta do usuário {nome_destino} ao servidor")
+            else:
+                print("Erro: formato correto: /chat <nome_do_usuario>")
+        else:
+            #se não for /list, /exit e nem começar com /chat
+            print("Comando inválido!")
+
 
 def LISTEN(p2p_socket):
-    # coloca o socket para escutar conexões
+    """coloca o socket para escutar conexões"""
     p2p_socket.listen()
     print("Aguardando conexões P2P...")
 
@@ -98,6 +127,7 @@ def main():
     #permitindo que eu continue enviando mensagens, designo uma thread para a função, que contem
     #um while true, mantendo a thread presa dentro da função
     threadKEEP= threading.Thread(target=KEEP, args = (servidor_central_socket,))
+    threadKEEP.daemon=True
     threadKEEP.start()
     
     #3.2 O socket P2P deve ficar escutando conexões de outros clientes
@@ -109,7 +139,8 @@ def main():
     thread_listen.daemon = True  # encerra junto com o programa
     thread_listen.start()
 
-    input("Cliente rodando! Pressione ENTER para sair do programa...\n") #só pra testar
+    menu(servidor_central_socket)
+    return
 
 
 if __name__ == "__main__":
