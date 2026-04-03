@@ -6,6 +6,10 @@ HOSTP2P='0.0.0.0'
 HOST_SERVIDOR_CENTRAL='200.235.131.66'
 PORTA_SERVIDOR_CENTRAL=10000
 
+meu_nome_usuario="" 
+peer_ativo= None #qual socket da conexao atual
+
+
 def KEEP(servidor_central_socket):
     "Função que envia 'KEEP' a cada 5 segundo para o servidor central em segundo plano"
     while True:
@@ -17,6 +21,7 @@ def KEEP(servidor_central_socket):
             return
             
 def menu(servidor_central_socket):
+    global peer_ativo
     "Menu de interacao para digitiar os comandos list, chat e exit"
     print("----------------CHAT P2P ----------------")
     print("Comandos: /list, /chat <nome>, /exit")
@@ -29,6 +34,8 @@ def menu(servidor_central_socket):
 
         elif cmd=="/exit":
             print("Encerrando conexão do cliente")
+            if peer_ativo:
+                peer_ativo.close()
             servidor_central_socket.close()
             break
         elif cmd.startswith("/chat"): 
@@ -40,9 +47,17 @@ def menu(servidor_central_socket):
                 print(f"Solicitando IP e Porta do usuário {nome_destino} ao servidor")
             else:
                 print("Erro: formato correto: /chat <nome_do_usuario>")
-        else:
-            #se não for /list, /exit e nem começar com /chat
-            print("Comando inválido!")
+        else: #não é comando nenhum, entao é mensagem para o chat
+            if peer_ativo is not None: #se tem conexao estabelecida com algum peer
+                try:
+                    # Envia a mensagem comum com \r\n
+                    msg_chat = f"{cmd}\r\n"
+                    peer_ativo.send(msg_chat.encode('utf-8'))
+                except Exception as e:
+                    print("Erro ao enviar mensagem. A conexão pode ter caído.")
+                    peer_ativo = None
+            else:
+                print("Erro: Nenhuma conexão P2P ativa. Use /chat <nome> primeiro.")
 
 
 def LISTEN(p2p_socket):
@@ -72,9 +87,19 @@ def handle_peer(conn, addr):
                 print(f"Conexão encerrada por {addr}") # encerra a conexão se não houver msg
                 break
 
-            msg = msg.decode('utf-8') # decodifica os bytes para string
-            print(f"[{addr}] {msg}")
-
+            msg = msg.decode('utf-8').split('\r\n') # decodifica os bytes para string
+            for m in msg:
+                if not m:
+                    continue
+                    
+                # Se for o comando USER de um novo peer se conectando
+                if m.startswith("USER "):
+                    nome_peer = m.split(" ")[1]
+                    print(f"\n{nome_peer} conectou-se a você!")
+                else:
+                    # Imprime a mensagem normal do chat
+                    print(f"[{addr}] {m}")
+    
     except Exception as e:
         print("Erro com peer:", e)
 
@@ -82,6 +107,9 @@ def handle_peer(conn, addr):
         conn.close()
 
 def LISTEN_SERVIDOR(sock):
+    global peer_ativo
+    global meu_nome_usuario
+
     while True:
         try:
             resposta = sock.recv(1024)
@@ -90,14 +118,50 @@ def LISTEN_SERVIDOR(sock):
                 print("Servidor desconectado.")
                 break
 
-            print("Servidor:", resposta.decode('utf-8'))
+            #Recebi uma mensagem
+            mensagens=resposta.decode('utf-8').split('\r\n')
+            #para nao considerar algum caso de linha vazia
+            for msg in mensagens:
+                if not msg:
+                    continue
+            
+                #se a mensagem enviada por um endereço, conectamos
+                if msg.startswith("ADDR"): #ADDR <nome>: <ip>: <porta>
+                    partes=msg.split(':')
+                    if len(partes)>=3:
+                        ip_peer=partes[1].strip()
+                        porta_peer=int(partes[2].strip()) #toda porta é int
+                        print(f"\nConectando ao peer no IP {ip_peer}:{porta_peer}...")
+
+                        try:
+                            #crindo socket p2p 
+                            novo_peer_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            novo_peer_sock.connect((ip_peer, porta_peer))
+
+                            #salva qual peer esta ativo
+                            peer_ativo=novo_peer_sock
+
+                            #enviar somando user para se indentificar ao peer
+                            cmd=f"USER {meu_nome_usuario}\r\n"
+                            novo_peer_sock.send(msg.encode("utf-8"))
+
+                            #cria um nova thread para escutar tudo que esse peer em especifico enviar
+                            #permitindo manter conexao com mais de um peer simultaneamente
+                            thread_peer=threading.Thread(target=handle_peer,args=(novo_peer_sock,(ip_peer,porta_peer)))
+                            thread_peer.daemon = True
+                            thread_peer.start()
+                            print("Conexão P2P estabelecida com sucesso!")
+                        except Exception as e:
+                            print(f"\n[Erro] Não foi possível conectar ao peer: {e}")
+                else: #se for apenas outra mensagem do servidor, só imprime
+                    print("Servidor:", resposta.decode('utf-8'))
 
         except Exception as e:
             print("Erro ao receber do servidor:", e)
             break
 
 def main():
-
+    global meu_nome_usuario
     #-------- 1. INICIALIZAÇÃO DO CLIENTE---------
     print("Iniciando cliente...")
 
@@ -114,6 +178,7 @@ def main():
 
     #Pedir nome de usuário (não pode conter ':')
     nomeUsuario=(input ("Digite seu nome de usuário: "))
+    meu_nome_usuario=nomeUsuario
 
     #---------2. Conectar no servidor central--------
     #Cria um socket exclusivamente para falar com o servidor central
