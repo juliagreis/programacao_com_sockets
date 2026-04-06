@@ -75,6 +75,7 @@ def LISTEN(p2p_socket):
 
     while True:
         try:
+            print("vou tentar aceitar agora...")
             conn, addr = p2p_socket.accept()
             print(f"Conexão recebida de {addr}")
 
@@ -139,9 +140,12 @@ def LISTEN_SERVIDOR(sock):
                 #se a mensagem enviada por um endereço, conectamos
                 if msg.startswith("ADDR"):
                     partes = msg.split(':')
+                    print(f"DEBUG: Recebi do servidor: {msg}")
                     if len(partes) >= 3:
-                        ip_peer = pegar_ip_local()  # ignora o IP do servidor, usa o local
+                        ip_peer=partes[1].strip()
+                        print(ip_peer)
                         porta_peer = int(partes[2].strip())
+                        print(porta_peer)
                         try:
                             #criando socket p2p 
                             novo_peer_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -198,7 +202,7 @@ def main():
         print("-- Conectado ao servidor central! --")
 
         #Monta mensagem de registro -> função USER
-        msg_registro = f"USER {nomeUsuario}:{myPORTA}\r\n" #\r\n especificado no PDF
+        msg_registro = f"USER {nomeUsuario}: {myPORTA}\r\n" #\r\n especificado no PDF
 
         #Enviar registro ao servidor central
             #obs: o socket trasmite bytes, por isso deve-se usar o .encode()
