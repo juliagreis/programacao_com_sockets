@@ -202,7 +202,7 @@ def main():
         print("-- Conectado ao servidor central! --")
 
         #Monta mensagem de registro -> função USER
-        msg_registro = f"USER {nomeUsuario}: {myPORTA}\r\n" #\r\n especificado no PDF
+        msg_registro = f"USER {nomeUsuario}:{myPORTA}\r\n" #\r\n especificado no PDF
 
         #Enviar registro ao servidor central
             #obs: o socket trasmite bytes, por isso deve-se usar o .encode()
