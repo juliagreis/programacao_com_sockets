@@ -7,7 +7,15 @@ HOST_SERVIDOR_CENTRAL='200.235.131.66'
 PORTA_SERVIDOR_CENTRAL=10000
 
 meu_nome_usuario="" 
-peer_ativo= None #qual socket da conexao atual
+peer_ativo= None
+
+def pegar_ip_local():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    finally:
+        s.close()
 
 
 def KEEP(servidor_central_socket):
@@ -62,7 +70,7 @@ def menu(servidor_central_socket):
 
 def LISTEN(p2p_socket):
     """coloca o socket para escutar conexões"""
-    p2p_socket.listen()
+    #p2p_socket.listen()
     print("Aguardando conexões P2P...")
 
     while True:
@@ -96,6 +104,9 @@ def handle_peer(conn, addr):
                 if m.startswith("USER "):
                     nome_peer = m.split(" ")[1]
                     print(f"\n{nome_peer} conectou-se a você!")
+
+                    global peer_ativo
+                    peer_ativo = conn
                 else:
                     # Imprime a mensagem normal do chat
                     print(f"[{addr}] {m}")
@@ -126,24 +137,22 @@ def LISTEN_SERVIDOR(sock):
                     continue
             
                 #se a mensagem enviada por um endereço, conectamos
-                if msg.startswith("ADDR"): #ADDR <nome>: <ip>: <porta>
-                    partes=msg.split(':')
-                    if len(partes)>=3:
-                        ip_peer=partes[1].strip()
-                        porta_peer=int(partes[2].strip()) #toda porta é int
-                        print(f"\nConectando ao peer no IP {ip_peer}:{porta_peer}...")
-
+                if msg.startswith("ADDR"):
+                    partes = msg.split(':')
+                    if len(partes) >= 3:
+                        ip_peer = pegar_ip_local()  # ignora o IP do servidor, usa o local
+                        porta_peer = int(partes[2].strip())
                         try:
-                            #crindo socket p2p 
+                            #criando socket p2p 
                             novo_peer_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                             novo_peer_sock.connect((ip_peer, porta_peer))
-
+                            print("estou tentando")
                             #salva qual peer esta ativo
                             peer_ativo=novo_peer_sock
 
                             #enviar somando user para se indentificar ao peer
                             cmd=f"USER {meu_nome_usuario}\r\n"
-                            novo_peer_sock.send(msg.encode("utf-8"))
+                            novo_peer_sock.send(cmd.encode("utf-8"))
 
                             #cria um nova thread para escutar tudo que esse peer em especifico enviar
                             #permitindo manter conexao com mais de um peer simultaneamente
@@ -215,6 +224,8 @@ def main():
     #é necessário manter o socket em modo de escuta contínua (listen + accept),
     #Para não bloquear o restante da aplicação uma thread
     #fica constantemente aguardando novas conexões de peers.
+    p2p_socket.listen()
+    print(f"escutando na porta {myPORTA}")
     thread_listen = threading.Thread(target=LISTEN, args=(p2p_socket,))
     thread_listen.daemon = True  # encerra junto com o programa
     thread_listen.start()
