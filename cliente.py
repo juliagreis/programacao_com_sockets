@@ -55,6 +55,15 @@ def menu(servidor_central_socket):
                 print(f"Solicitando IP e Porta do usuário {nome_destino} ao servidor")
             else:
                 print("Erro: formato correto: /chat <nome_do_usuario>")
+                
+        elif cmd == "/bye":
+            if peer_ativo:
+                peer_ativo.close()
+                peer_ativo = None
+                print("Conexão P2P encerrada.")
+            else:
+                print("Nenhuma conexão P2P ativa.")
+        
         else: #não é comando nenhum, entao é mensagem para o chat
             if peer_ativo is not None: #se tem conexao estabelecida com algum peer
                 try:
@@ -87,7 +96,8 @@ def LISTEN(p2p_socket):
             print("Erro ao aceitar conexão:", e)
             break
 
-def handle_peer(conn, addr):
+def handle_peer(conn, addr,nome_peer="desconhecido"):
+    global peer_ativo
     try:
         while True:
             msg = conn.recv(1024)  # recebe dados do peer até 1024 bytes
@@ -110,14 +120,17 @@ def handle_peer(conn, addr):
                     peer_ativo = conn
                 else:
                     # Imprime a mensagem normal do chat
-                    print(f"[{addr}] {m}")
+                    print(f"[{nome_peer}] {m}")
     
     except Exception as e:
         print("Erro com peer:", e)
 
     finally:
+        print(f"Conexão com {nome_peer} finalizada.")
         conn.close()
-
+        if peer_ativo == conn:
+            peer_ativo = None
+      
 def LISTEN_SERVIDOR(sock):
     global peer_ativo
     global meu_nome_usuario
