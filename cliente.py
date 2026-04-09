@@ -8,15 +8,11 @@ PORTA_SERVIDOR_CENTRAL=10000
 
 meu_nome_usuario="" 
 peer_ativo= None
+peers_conectados = {}    #nome_peer: socket
 
-def pegar_ip_local():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    finally:
-        s.close()
-
+#Lock para evitar condições de corrida entre as threads
+lock_peer_ativo = threading.Lock()  # socket do peer atual
+lock_peers_conectados = threading.Lock() # protege peers_conectados
 
 def KEEP(servidor_central_socket):
     "Função que envia 'KEEP' a cada 5 segundo para o servidor central em segundo plano"
@@ -32,7 +28,7 @@ def menu(servidor_central_socket):
     global peer_ativo
     "Menu de interacao para digitiar os comandos list, chat e exit"
     print("----------------CHAT P2P ----------------")
-    print("Comandos: /list, /chat <nome>, /exit")
+    print("Comandos: /list, /chat <nome>, /peers, /switch <nome>, /bye, /exit")
 
     while True:
         cmd=input()
@@ -40,42 +36,111 @@ def menu(servidor_central_socket):
         if cmd=="/list": #listar todos os usuarios
             servidor_central_socket.send("LIST\r\n".encode('utf-8'))
 
-        elif cmd=="/exit":
-            print("Encerrando conexão do cliente")
-            if peer_ativo:
-                peer_ativo.close()
-            servidor_central_socket.close()
+        elif cmd == "/exit":
+            print("Encerrando...")
+            with lock_peers_conectados:
+                for sock in list(peers_conectados.values()):
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                        sock.close()
+                    except Exception:
+                        pass
+                peers_conectados.clear()
+            with lock_peer_ativo:
+                peer_ativo = None
+            try:
+                servidor_central_socket.shutdown(socket.SHUT_RDWR)
+                servidor_central_socket.close()
+            except Exception:
+                pass
             break
+
+        elif cmd == "/peers":
+            #lista todos os peers com conexão P2P estabelecida
+            with lock_peers_conectados:
+                nomes = list(peers_conectados.items())
+            with lock_peer_ativo:
+                ativo_sock = peer_ativo
+ 
+            if not nomes:
+                print("Nenhum peer conectado no momento.")
+            else:
+                print("Peers conectados:")
+                for nome, sock in nomes:
+                    print(f"  {nome}")
+
+        elif cmd.startswith("/switch "):
+            # Troca o peer ativo sem encerrar as outras conexões
+            nome_alvo = cmd.split(" ", 1)[1].strip()
+            with lock_peers_conectados:
+                sock_alvo = peers_conectados.get(nome_alvo)
+            if sock_alvo:
+                with lock_peer_ativo:
+                    peer_ativo = sock_alvo
+                print(f"Peer ativo: {nome_alvo}")
+            else:
+                print(f"Peer '{nome_alvo}' nao encontrado. Use /peers.")
+
         elif cmd.startswith("/chat"): 
             partes=cmd.split()
             if len(partes)==2: 
                 nome_destino=partes[1]
-                comando_ADDR=f"ADDR {nome_destino}\r\n"
-                servidor_central_socket.send(comando_ADDR.encode('utf-8'))
-                print(f"Solicitando IP e Porta do usuário {nome_destino} ao servidor")
+
+                # Se já há conexão local com esse peer, apenas troca o ativo
+                with lock_peers_conectados:
+                    ja_conectado = nome_destino in peers_conectados
+                    sock_alvo = peers_conectados.get(nome_destino)
+                    
+                if ja_conectado:
+                    with lock_peer_ativo:
+                        peer_ativo = sock_alvo
+                    print(f"Você já está conectado a {nome_destino}. Peer ativo alterado.")
+                else:
+                    # Solicita endereço ao servidor para abrir nova conexão P2P
+                    comando_ADDR=f"ADDR {nome_destino}\r\n"
+                    servidor_central_socket.send(comando_ADDR.encode('utf-8'))
+                    print(f"Solicitando IP e Porta do usuário {nome_destino} ao serv    idor")
             else:
                 print("Erro: formato correto: /chat <nome_do_usuario>")
                 
         elif cmd == "/bye":
-            if peer_ativo:
-                peer_ativo.close()
+            # Encerra apenas a conexão com o peer atualmente ativo
+            with lock_peer_ativo:
+                sock_para_fechar = peer_ativo
                 peer_ativo = None
+ 
+            if sock_para_fechar:
+                with lock_peers_conectados:
+                    nome_removido = None
+                    for nome, sock in list(peers_conectados.items()):
+                        if sock is sock_para_fechar:
+                            nome_removido = nome
+                            break
+                    if nome_removido:
+                        del peers_conectados[nome_removido]
+                try:
+                    sock_para_fechar.shutdown(socket.SHUT_RDWR)
+                    sock_para_fechar.close()
+                except Exception:
+                    pass
                 print("Conexão P2P encerrada.")
             else:
                 print("Nenhuma conexão P2P ativa.")
-        
-        else: #não é comando nenhum, entao é mensagem para o chat
-            if peer_ativo is not None: #se tem conexao estabelecida com algum peer
-                try:
-                    # Envia a mensagem comum com \r\n
-                    msg_chat = f"{cmd}\r\n"
-                    peer_ativo.send(msg_chat.encode('utf-8'))
-                except Exception as e:
-                    print("Erro ao enviar mensagem. A conexão pode ter caído.")
-                    peer_ativo = None
-            else:
-                print("Erro: Nenhuma conexão P2P ativa. Use /chat <nome> primeiro.")
 
+        else: #não é comando nenhum, entao é mensagem para o chat
+            with lock_peer_ativo:
+                sock_atual = peer_ativo
+            if sock_atual is not None:
+                try:
+                    msg_chat = f"{cmd}\r\n"
+                    sock_atual.send(msg_chat.encode('utf-8'))
+                except Exception:
+                    print("Erro ao enviar mensagem. A conexão pode ter caído.")
+                    with lock_peer_ativo:
+                        if peer_ativo is sock_atual:
+                            peer_ativo = None
+            else:
+                print("Nenhuma conexão P2P ativa. Use /chat <nome> primeiro.")
 
 def LISTEN(p2p_socket):
     """coloca o socket para escutar conexões"""
@@ -84,20 +149,28 @@ def LISTEN(p2p_socket):
 
     while True:
         try:
-            print("vou tentar aceitar agora...")
             conn, addr = p2p_socket.accept()
             print(f"Conexão recebida de {addr}")
 
             # cria uma thread para lidar com esse peer
-            thread = threading.Thread(target=handle_peer, args=(conn, addr))
+            thread = threading.Thread(target=handle_peer, args=(conn, addr, None))
             thread.start()
 
         except Exception as e:
             print("Erro ao aceitar conexão:", e)
             break
 
-def handle_peer(conn, addr,nome_peer="desconhecido"):
+def handle_peer(conn, addr,nome_conhecido):
     global peer_ativo
+    nome_peer = nome_conhecido
+    # Se ja sabemos o nome (iniciamos a conexao), registra agora
+    if nome_peer is not None:
+        with lock_peers_conectados:
+            peers_conectados[nome_peer] = conn
+        with lock_peer_ativo:
+            peer_ativo = conn
+        print(f"Conexao P2P estabelecida com {nome_peer}!")
+
     try:
         while True:
             msg = conn.recv(1024)  # recebe dados do peer até 1024 bytes
@@ -115,25 +188,35 @@ def handle_peer(conn, addr,nome_peer="desconhecido"):
                 if m.startswith("USER "):
                     nome_peer = m.split(" ")[1]
                     print(f"\n{nome_peer} conectou-se a você!")
-
-                    global peer_ativo
-                    peer_ativo = conn
+                    
+                    with lock_peers_conectados:
+                        peers_conectados[nome_peer] = conn
+                    with lock_peer_ativo:
+                        peer_ativo = conn
                 else:
                     # Imprime a mensagem normal do chat
                     print(f"[{nome_peer}] {m}")
-    
+    except OSError:
+        pass  # socket fechado localmente (/bye ou /exit) — comportamento esperado
     except Exception as e:
         print("Erro com peer:", e)
 
     finally:
-        print(f"Conexão com {nome_peer} finalizada.")
-        conn.close()
+        with lock_peers_conectados:
+            if nome_peer and peers_conectados.get(nome_peer) is conn:
+                del peers_conectados[nome_peer]
+        with lock_peer_ativo:
+            if peer_ativo is conn:
+                peer_ativo = None
+        try:
+            conn.close()
+        except Exception:
+            pass        
         if peer_ativo == conn:
             peer_ativo = None
       
 def LISTEN_SERVIDOR(sock):
     global peer_ativo
-    global meu_nome_usuario
 
     while True:
         try:
@@ -152,9 +235,13 @@ def LISTEN_SERVIDOR(sock):
             
                 #se a mensagem enviada por um endereço, conectamos
                 if msg.startswith("ADDR"):
-                    partes = msg.split(':')
+                    # Formato: "ADDR <nome>:<ip>:<porta>"
+                    conteudo = msg[5:]            # remove "ADDR " → "testbot:200.235.131.66:43331"
+                    partes = conteudo.split(':')
                     print(f"DEBUG: Recebi do servidor: {msg}")
                     if len(partes) >= 3:
+                        nome_peer  = partes[0].strip()
+                        print(nome_peer)
                         ip_peer=partes[1].strip()
                         print(ip_peer)
                         porta_peer = int(partes[2].strip())
@@ -173,10 +260,10 @@ def LISTEN_SERVIDOR(sock):
 
                             #cria um nova thread para escutar tudo que esse peer em especifico enviar
                             #permitindo manter conexao com mais de um peer simultaneamente
-                            thread_peer=threading.Thread(target=handle_peer,args=(novo_peer_sock,(ip_peer,porta_peer)))
+                            thread_peer=threading.Thread(target=handle_peer,args=(novo_peer_sock,(ip_peer,porta_peer),  nome_peer))
                             thread_peer.daemon = True
                             thread_peer.start()
-                            print("Conexão P2P estabelecida com sucesso!")
+
                         except Exception as e:
                             print(f"\n[Erro] Não foi possível conectar ao peer: {e}")
                 else: #se for apenas outra mensagem do servidor, só imprime
