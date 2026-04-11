@@ -287,7 +287,7 @@ def main():
     #Descobre qual IP e PORTA o SO atribuiu: retorno (ip,porta)
     myIP,myPORTA=p2p_socket.getsockname()
 
-    print(f"Cliente IP:{myIP} pronto para estabelecer conexões P2P na porta {myPORTA}.")
+    #print(f"Cliente IP:{myIP} pronto para estabelecer conexões P2P na porta {myPORTA}.")
 
     #Pedir nome de usuário (não pode conter ':')
     nomeUsuario=(input ("Digite seu nome de usuário: "))
