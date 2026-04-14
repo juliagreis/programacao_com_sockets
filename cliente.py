@@ -1,3 +1,14 @@
+"""
+Código feito por JÚLIA GOMES REIS 116209 e AYLLA KATRINE SOUZA MENDES 116214
+
+Esse código é um cliente de chat P2P onde você primeiro digita um nome de usuário e se conecta a um servidor central. 
+Depois disso, você usa comandos no terminal: “/list” mostra quem está disponível, “/chat <nome>” inicia uma conexão direta com outro usuário, “/peers” mostra com quem você 
+já está conectado, “/switch <nome>” alterna entre conversas ativas, “/bye” encerra a conversa atual e “/exit” fecha tudo. As funções principais trabalham em paralelo com 
+threads: KEEP mantém seu registro ativo no servidor enviando mensagens periódicas, LISTEN aceita conexões de outros usuários, LISTEN_SERVIDOR recebe respostas do servidor 
+(como IP e porta de outros peers), e handle_peer cuida da troca de mensagens com cada pessoa conectada. O programa permite conversar com várias pessoas ao mesmo tempo 
+mantendo várias conexões abertas, mas você envia mensagens apenas para um “peer ativo” por vez, podendo alternar entre eles sem precisar reconectar.
+"""
+
 import socket
 import time
 import threading
